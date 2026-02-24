@@ -180,11 +180,15 @@
         background: #e2e8f0;
         color: #333;
         border: none;
-        padding: 6px 15px;
+        padding: 8px 18px;
         border-radius: 20px;
         cursor: pointer;
         font-family: inherit;
+        font-weight: bold;
         transition: 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
       }
       .tag-btn:hover {
         background: #cbd5e1;
@@ -192,6 +196,15 @@
       .tag-btn.active {
         background: var(--primary);
         color: white;
+      }
+      .tag-count {
+        background: rgba(0, 0, 0, 0.1);
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.85em;
+      }
+      .tag-btn.active .tag-count {
+        background: rgba(255, 255, 255, 0.2);
       }
 
       footer {
@@ -223,7 +236,7 @@
         <h1>محفظة المشاريع البرمجية والتعليمية</h1>
         <p>
           أداة احترافية لتنظيم وتصدير مشاريعك من GitHub مع دعم الهاشتاقات
-          والشعارات.
+          والشعارات والإحصائيات.
         </p>
 
         <div class="controls">
@@ -273,7 +286,7 @@
         "
       >
         <h3 style="margin-top: 0; color: var(--primary)">
-          🏷️ تصنيفات الهاشتاق (معاينة):
+          🏷️ تصنيفات الهاشتاق وإحصائياتها (معاينة):
         </h3>
         <div
           id="categoryTags"
@@ -316,7 +329,6 @@
         const list = document.getElementById("repoList");
         if (!user) return alert("يرجى إدخال اسم المستخدم");
 
-        // --- الميزة الجديدة: حفظ البيانات الموجودة حالياً على الشاشة قبل الجلب ---
         const currentData = {};
         document.querySelectorAll("#repoList li").forEach((li) => {
           const name = li.querySelector(".select-box").dataset.name;
@@ -324,7 +336,6 @@
           const checked = li.querySelector(".select-box").checked;
           currentData[name] = { desc, checked };
         });
-        // -------------------------------------------------------------------------
 
         list.innerHTML =
           "<p style='text-align:center; grid-column:1/-1; font-weight:bold;'>⏳ جاري الاتصال بـ GitHub ومزامنة المشاريع...</p>";
@@ -343,11 +354,9 @@
           }
 
           data.forEach((repo) => {
-            // القيم الافتراضية إذا كان المشروع جديداً تماماً
             let finalDesc = repo.description || "";
             let finalChecked = true;
 
-            // إذا كان المشروع موجوداً مسبقاً، استعد الوصف والتحديد الخاص بك
             if (currentData[repo.name]) {
               finalDesc = currentData[repo.name].desc;
               finalChecked = currentData[repo.name].checked;
@@ -393,28 +402,49 @@
         const boxes = document.querySelectorAll(".select-box");
         const all = [...boxes].every((b) => b.checked);
         boxes.forEach((b) => (b.checked = !all));
+        // تحديث التصنيفات بعد تحديد الكل/إلغاء التحديد في حال أردنا مستقبلا ربطها، حاليا التحديث مرتبط بالنص
       }
 
       function updateTags() {
-        const tags = new Set();
-        document.querySelectorAll("textarea").forEach((t) => {
-          const matches = t.value.match(/#[\w\u0600-\u06FF_]+/g);
-          if (matches) matches.forEach((m) => tags.add(m));
+        const tagCounts = {};
+        let totalProjects = 0;
+
+        document.querySelectorAll("#repoList li").forEach((li) => {
+          totalProjects++;
+          const textarea = li.querySelector("textarea");
+          if (!textarea) return;
+
+          const text = textarea.value;
+          const matches = text.match(/#[\w\u0600-\u06FF_]+/g);
+
+          if (matches) {
+            // استخدام Set لمنع تكرار عد نفس الهاشتاق في نفس المشروع
+            const uniqueTags = new Set(matches);
+            uniqueTags.forEach((tag) => {
+              tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+            });
+          }
         });
+
         const container = document.getElementById("categoryContainer");
         const tagBox = document.getElementById("categoryTags");
-        if (tags.size === 0) {
+
+        if (Object.keys(tagCounts).length === 0) {
           container.style.display = "none";
           return;
         }
 
         container.style.display = "block";
-        tagBox.innerHTML =
-          '<button class="tag-btn active" onclick="filterLocal(null, this)">الكل</button>';
-        tags.forEach((tag) => {
+        tagBox.innerHTML = `
+          <button class="tag-btn active" onclick="filterLocal(null, this)">
+            الكل <span class="tag-count">${totalProjects}</span>
+          </button>`;
+
+        Object.keys(tagCounts).forEach((tag) => {
+          const count = tagCounts[tag];
           const b = document.createElement("button");
           b.className = "tag-btn";
-          b.innerText = tag;
+          b.innerHTML = `${tag} <span class="tag-count">${count}</span>`;
           b.onclick = function () {
             filterLocal(tag, this);
           };
@@ -445,16 +475,30 @@
             desc: li.querySelector("textarea").value,
           })),
         };
-        localStorage.setItem("github_portfolio_v4", JSON.stringify(data));
+        localStorage.setItem("github_portfolio_v5", JSON.stringify(data));
         alert("✅ تم حفظ المسودة بنجاح");
       }
 
       function loadDraft() {
-        const data = JSON.parse(localStorage.getItem("github_portfolio_v4"));
-        if (!data) return alert("لا توجد مسودة محفوظة");
+        // البحث عن المسودة في النسخة الجديدة أولاً، ثم التدرج للنسخ الأقدم لاستعادة بياناتك
+        let data = JSON.parse(localStorage.getItem("github_portfolio_v5"));
 
-        document.getElementById("username").value = data.user || "";
-        document.getElementById("arabicName").value = data.name || "";
+        if (!data)
+          data = JSON.parse(localStorage.getItem("github_portfolio_v4"));
+        if (!data)
+          data = JSON.parse(localStorage.getItem("github_portfolio_v3"));
+        if (!data)
+          data = JSON.parse(localStorage.getItem("github_portfolio_v2"));
+        if (!data)
+          data = JSON.parse(localStorage.getItem("github_portfolio_draft")); // النسخة الأولى جداً
+
+        if (!data) return alert("لا توجد مسودة محفوظة مسبقاً.");
+
+        // التوافق مع اختلاف مسميات المتغيرات بين النسخ القديمة والحديثة
+        document.getElementById("username").value =
+          data.user || data.username || "";
+        document.getElementById("arabicName").value =
+          data.name || data.arabicName || "";
 
         if (data.logo) {
           savedLogoBase64 = data.logo;
@@ -466,11 +510,17 @@
         const list = document.getElementById("repoList");
         list.innerHTML = "";
         if (data.repos) {
-          data.repos.forEach((r) =>
-            list.appendChild(createCard(r.name, r.desc, data.user, r.checked)),
-          );
+          data.repos.forEach((r) => {
+            // استرجاع الوصف سواء كان مسجلاً بالاسم القديم أو الجديد
+            const oldDesc = r.desc || r.description || "";
+            const oldUser = data.user || data.username || "";
+            list.appendChild(createCard(r.name, oldDesc, oldUser, r.checked));
+          });
+
           updateTags();
-          alert("تم استرجاع البيانات بنجاح 📂");
+          alert(
+            "تم استرجاع بياناتك القديمة بنجاح 📂! \n(ملاحظة: اضغط الآن على 'حفظ مسودة' ليتم ترقيتها للنسخة الحديثة v5).",
+          );
         }
       }
 
@@ -510,9 +560,11 @@
         
         .category-nav { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 30px; border-right: 5px solid #10b981; text-align: right; display: none; }
         .tags-container { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
-        .tag-btn { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-family: inherit; font-weight: bold; color: #475569; transition: all 0.2s; }
+        .tag-btn { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-family: inherit; font-weight: bold; color: #475569; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
         .tag-btn:hover { background: #e2e8f0; }
         .tag-btn.active { background: #2563eb; color: white; border-color: #2563eb; }
+        .tag-count { background: rgba(0,0,0,0.1); padding: 2px 8px; border-radius: 12px; font-size: 0.85em; }
+        .tag-btn.active .tag-count { background: rgba(255,255,255,0.2); }
 
         .projects-list { display: flex; flex-direction: column; gap: 25px; }
         .project-card { position: relative; background: white; border-radius: 15px; padding: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: right; border-right: 6px solid #2563eb; transition: transform 0.3s; }
@@ -572,30 +624,35 @@
     <script>
         document.addEventListener("DOMContentLoaded", function() {
             const cards = document.querySelectorAll(".project-card");
-            const tagsSet = new Set();
+            const tagCounts = {};
+            const totalProjects = cards.length;
             
             cards.forEach(card => {
                 const text = card.getAttribute("data-desc");
                 const matches = text.match(/#[\\w\\u0600-\\u06FF_]+/g);
                 if (matches) {
-                    matches.forEach(tag => tagsSet.add(tag));
+                    const uniqueTags = new Set(matches);
+                    uniqueTags.forEach(tag => {
+                        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+                    });
                 }
             });
 
-            if (tagsSet.size > 0) {
+            if (Object.keys(tagCounts).length > 0) {
                 document.getElementById("categoryNav").style.display = "block";
                 const tagsContainer = document.getElementById("exportTags");
                 
                 const allBtn = document.createElement("button");
                 allBtn.className = "tag-btn active";
-                allBtn.innerText = "الكل";
+                allBtn.innerHTML = 'الكل <span class="tag-count">' + totalProjects + '</span>';
                 allBtn.onclick = function() { filterProjects(null, this); };
                 tagsContainer.appendChild(allBtn);
 
-                tagsSet.forEach(tag => {
+                Object.keys(tagCounts).forEach(tag => {
+                    const count = tagCounts[tag];
                     const btn = document.createElement("button");
                     btn.className = "tag-btn";
-                    btn.innerText = tag;
+                    btn.innerHTML = tag + ' <span class="tag-count">' + count + '</span>';
                     btn.onclick = function() { filterProjects(tag, this); };
                     tagsContainer.appendChild(btn);
                 });
