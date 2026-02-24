@@ -3,8 +3,6 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" href="favicon.ico" type="image/x-icon">
-<link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <title>محفظة مشاريع GitHub | المطور التعليمي</title>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap");
@@ -245,7 +243,7 @@
 
         <div class="button-group">
           <button class="btn btn-primary" onclick="fetchRepos()">
-            📂 جلب المشاريع
+            📂 جلب / مزامنة المشاريع
           </button>
           <button class="btn btn-warning" onclick="toggleAllCheckboxes()">
             ✅ تحديد الكل
@@ -318,8 +316,18 @@
         const list = document.getElementById("repoList");
         if (!user) return alert("يرجى إدخال اسم المستخدم");
 
+        // --- الميزة الجديدة: حفظ البيانات الموجودة حالياً على الشاشة قبل الجلب ---
+        const currentData = {};
+        document.querySelectorAll("#repoList li").forEach((li) => {
+          const name = li.querySelector(".select-box").dataset.name;
+          const desc = li.querySelector("textarea").value;
+          const checked = li.querySelector(".select-box").checked;
+          currentData[name] = { desc, checked };
+        });
+        // -------------------------------------------------------------------------
+
         list.innerHTML =
-          "<p style='text-align:center; grid-column:1/-1; font-weight:bold;'>⏳ جاري الاتصال بـ GitHub...</p>";
+          "<p style='text-align:center; grid-column:1/-1; font-weight:bold;'>⏳ جاري الاتصال بـ GitHub ومزامنة المشاريع...</p>";
 
         try {
           const res = await fetch(
@@ -335,9 +343,20 @@
           }
 
           data.forEach((repo) => {
-            const li = createCard(repo.name, repo.description, user, true);
+            // القيم الافتراضية إذا كان المشروع جديداً تماماً
+            let finalDesc = repo.description || "";
+            let finalChecked = true;
+
+            // إذا كان المشروع موجوداً مسبقاً، استعد الوصف والتحديد الخاص بك
+            if (currentData[repo.name]) {
+              finalDesc = currentData[repo.name].desc;
+              finalChecked = currentData[repo.name].checked;
+            }
+
+            const li = createCard(repo.name, finalDesc, user, finalChecked);
             list.appendChild(li);
           });
+
           updateTags();
         } catch (e) {
           alert("حدث خطأ في الاتصال");
@@ -499,7 +518,6 @@
         .project-card { position: relative; background: white; border-radius: 15px; padding: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: right; border-right: 6px solid #2563eb; transition: transform 0.3s; }
         .project-card:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
         
-        /* تنسيق الترقيم الجديد */
         .project-number { position: absolute; top: -15px; right: -15px; background: #2563eb; color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; box-shadow: 0 4px 10px rgba(37,99,235,0.3); font-size: 1.2em; z-index: 10; border: 3px solid white; }
         
         .project-desc { font-size: 1.2em; line-height: 1.6; color: #334155; margin-bottom: 20px; white-space: pre-wrap; margin-top: 10px; }
@@ -588,13 +606,12 @@
             document.querySelectorAll(".tag-btn").forEach(b => b.classList.remove("active"));
             btnElement.classList.add("active");
 
-            // إعادة الترقيم بناءً على الفلترة
             let visibleCount = 1;
             document.querySelectorAll(".project-card").forEach(card => {
                 const text = card.getAttribute("data-desc");
                 if (!tag || text.includes(tag)) {
                     card.style.display = "block";
-                    card.querySelector('.project-number').innerText = visibleCount++; // تحديث الرقم
+                    card.querySelector('.project-number').innerText = visibleCount++; 
                 } else {
                     card.style.display = "none";
                 }
