@@ -129,6 +129,12 @@
       .btn-warning {
         background: var(--warning);
       }
+      .btn-info {
+        background: #0ea5e9;
+      }
+      .btn-danger {
+        background: #ef4444;
+      }
       .btn-upload {
         background: #64748b;
         cursor: pointer;
@@ -151,6 +157,23 @@
         box-shadow: var(--shadow);
         border-top: 6px solid var(--primary);
         position: relative;
+      }
+      .remove-card-btn {
+        position: absolute;
+        top: 18px;
+        right: 18px;
+        width: 34px;
+        height: 34px;
+        border: none;
+        border-radius: 50%;
+        background: #fee2e2;
+        color: #b91c1c;
+        font-size: 22px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .remove-card-btn:hover {
+        background: #fecaca;
       }
       .checkbox-wrapper {
         position: absolute;
@@ -264,6 +287,15 @@
           <button class="btn btn-success" onclick="exportHTML(true)">
             📤 تصدير احترافي (مع الهاشتاقات)
           </button>
+          <button class="btn btn-info" onclick="exportSettingsJSON()">
+            🧾 حفظ نسخة JSON
+          </button>
+          <button class="btn" style="background: #7c3aed" onclick="triggerImportSettings()">
+            📥 استيراد JSON
+          </button>
+          <button class="btn" style="background: #0891b2" onclick="addManualRepo()">
+            ➕ إضافة مشروع
+          </button>
           <button class="btn" style="background: #475569" onclick="saveDraft()">
             💾 حفظ مسودة
           </button>
@@ -271,6 +303,13 @@
             📂 استرجاع
           </button>
         </div>
+        <input
+          type="file"
+          id="settingsFileInput"
+          accept="application/json,.json"
+          style="display: none"
+          onchange="importSettingsJSON(event)"
+        />
       </div>
 
       <div
@@ -309,6 +348,121 @@
 
     <script>
       let savedLogoBase64 = "";
+      let previewFrameCounter = 0;
+
+      const CURRENT_STORAGE_KEY = "github_portfolio_v6";
+      const LEGACY_STORAGE_KEYS = [
+        "github_portfolio_v5",
+        "github_portfolio_v4",
+        "github_portfolio_v3",
+        "github_portfolio_v2",
+        "github_portfolio_draft",
+      ];
+
+      function escapeHTML(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function sanitizeFilename(value, fallback = "portfolio") {
+        return (
+          String(value || fallback)
+            .trim()
+            .replace(/[\\/:*?"<>|]+/g, "_")
+            .replace(/\s+/g, "_")
+            .slice(0, 80) || fallback
+        );
+      }
+
+      function buildProjectUrl(user, name) {
+        return `https://${String(user || "").trim()}.github.io/${encodeURIComponent(String(name || "").trim())}/`;
+      }
+
+      function downloadFile(filename, content, type) {
+        const blob = new Blob([content], { type });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      function normalizeChecked(value) {
+        if (value === undefined || value === null) return true;
+        if (typeof value === "string") return value !== "false";
+        return Boolean(value);
+      }
+
+      function normalizeSettings(rawSettings) {
+        if (!rawSettings || typeof rawSettings !== "object") return null;
+
+        const user = rawSettings.user || rawSettings.username || "";
+        const name = rawSettings.name || rawSettings.arabicName || "";
+        const repos = Array.isArray(rawSettings.repos) ? rawSettings.repos : [];
+
+        return {
+          version: 6,
+          user,
+          name,
+          logo: rawSettings.logo || "",
+          repos: repos
+            .filter((repo) => repo && (repo.name || repo.repo || repo.repository))
+            .map((repo) => ({
+              name: String(repo.name || repo.repo || repo.repository).trim(),
+              checked: normalizeChecked(repo.checked),
+              desc: String(repo.desc ?? repo.description ?? ""),
+            })),
+        };
+      }
+
+      function collectSettings() {
+        return {
+          version: 6,
+          exportedAt: new Date().toISOString(),
+          user: document.getElementById("username").value.trim(),
+          name: document.getElementById("arabicName").value.trim(),
+          logo: savedLogoBase64,
+          repos: [...document.querySelectorAll("#repoList li")].map((li) => ({
+            name: li.querySelector(".select-box").dataset.name,
+            checked: li.querySelector(".select-box").checked,
+            desc: li.querySelector("textarea").value,
+          })),
+        };
+      }
+
+      function applySettings(rawSettings) {
+        const data = normalizeSettings(rawSettings);
+        if (!data) return false;
+
+        document.getElementById("username").value = data.user;
+        document.getElementById("arabicName").value = data.name;
+
+        const preview = document.getElementById("logoPreview");
+        savedLogoBase64 = data.logo || "";
+        if (savedLogoBase64) {
+          preview.src = savedLogoBase64;
+          preview.style.display = "block";
+        } else {
+          preview.removeAttribute("src");
+          preview.style.display = "none";
+        }
+
+        const list = document.getElementById("repoList");
+        list.innerHTML = "";
+        data.repos.forEach((repo) => {
+          list.appendChild(createCard(repo.name, repo.desc, data.user, repo.checked));
+        });
+
+        updateTags();
+        return true;
+      }
 
       function handleLogoUpload(event) {
         const file = event.target.files[0];
@@ -322,6 +476,31 @@
           };
           reader.readAsDataURL(file);
         }
+      }
+
+      async function fetchGithubRepos(user) {
+        const repos = [];
+        let page = 1;
+
+        while (true) {
+          const res = await fetch(
+            `https://api.github.com/users/${encodeURIComponent(user)}/repos?sort=updated&per_page=100&page=${page}`,
+          );
+          const data = await res.json();
+
+          if (!res.ok) {
+            throw new Error(data.message || "تعذر جلب المشاريع من GitHub");
+          }
+          if (!Array.isArray(data)) {
+            throw new Error("استجابة GitHub غير متوقعة");
+          }
+
+          repos.push(...data);
+          if (data.length < 100) break;
+          page += 1;
+        }
+
+        return repos;
       }
 
       async function fetchRepos() {
@@ -341,13 +520,10 @@
           "<p style='text-align:center; grid-column:1/-1; font-weight:bold;'>⏳ جاري الاتصال بـ GitHub ومزامنة المشاريع...</p>";
 
         try {
-          const res = await fetch(
-            `https://api.github.com/users/${user}/repos?sort=updated&per_page=100`,
-          );
-          const data = await res.json();
+          const data = await fetchGithubRepos(user);
           list.innerHTML = "";
 
-          if (data.length === 0 || data.message === "Not Found") {
+          if (data.length === 0) {
             list.innerHTML =
               "<p style='text-align:center; grid-column:1/-1; color:red;'>❌ لم يتم العثور على مشاريع.</p>";
             return;
@@ -368,34 +544,72 @@
 
           updateTags();
         } catch (e) {
-          alert("حدث خطأ في الاتصال");
+          list.innerHTML = "";
+          alert(`حدث خطأ في الاتصال: ${e.message}`);
         }
       }
 
-      function createCard(name, desc, user, checked) {
-        const url = `https://${user}.github.io/${name}/`;
+      function createCard(name, desc, user, checked = true) {
+        const url = buildProjectUrl(user, name);
+        const frameId = `frame-${++previewFrameCounter}`;
         const li = document.createElement("li");
         li.className = "repo-card";
         li.innerHTML = `
-                <div class="checkbox-wrapper"><input type="checkbox" class="select-box" data-name="${name}" ${checked ? "checked" : ""} style="transform: scale(1.5);"></div>
-                <strong style="font-size:1.2em; color:var(--primary); display:block; margin-bottom:5px;">📂 ${name}</strong>
-                <a href="${url}" target="_blank" style="color:#64748b; font-size:0.9em; text-decoration:none; word-break: break-all;">${url}</a>
+                <button type="button" class="remove-card-btn" title="حذف المشروع">×</button>
+                <div class="checkbox-wrapper"><input type="checkbox" class="select-box" data-name="${escapeHTML(name)}" ${checked ? "checked" : ""} style="transform: scale(1.5);"></div>
+                <strong style="font-size:1.2em; color:var(--primary); display:block; margin-bottom:5px; padding-inline-end:40px;">📂 ${escapeHTML(name)}</strong>
+                <a href="${escapeHTML(url)}" target="_blank" rel="noopener" style="color:#64748b; font-size:0.9em; text-decoration:none; word-break: break-all;">${escapeHTML(url)}</a>
                 <label style="display:block; margin-top:15px; font-weight:bold; font-size:0.9em; color:#475569;">وصف المشروع والهاشتاقات:</label>
-                <textarea rows="3" placeholder="مثال: أداة لتحليل النتائج #أدوات_تقنية #رياضيات" data-name="${name}">${desc || ""}</textarea>
+                <textarea rows="3" placeholder="مثال: أداة لتحليل النتائج #أدوات_تقنية #رياضيات" data-name="${escapeHTML(name)}">${escapeHTML(desc || "")}</textarea>
                 <div style="display:flex; gap:10px; margin-top:10px;">
-                    <button class="btn btn-primary" style="flex:1; padding:8px; justify-content:center;" onclick="window.open('${url}')">🌐 زيارة</button>
-                    <button class="btn btn-warning" style="flex:1; padding:8px; justify-content:center; background:#64748b;" onclick="togglePrev('${name}', '${url}')">👁️ معاينة</button>
+                    <button type="button" class="btn btn-primary visit-btn" style="flex:1; padding:8px; justify-content:center;">🌐 زيارة</button>
+                    <button type="button" class="btn btn-warning preview-btn" style="flex:1; padding:8px; justify-content:center; background:#64748b;">👁️ معاينة</button>
                 </div>
-                <iframe id="frame-${name}" class="preview"></iframe>
+                <iframe id="${frameId}" class="preview" title="معاينة ${escapeHTML(name)}"></iframe>
             `;
         li.querySelector("textarea").addEventListener("input", updateTags);
+        li.querySelector(".visit-btn").addEventListener("click", () => {
+          window.open(url, "_blank", "noopener");
+        });
+        li.querySelector(".preview-btn").addEventListener("click", () => {
+          togglePrev(frameId, url);
+        });
+        li.querySelector(".remove-card-btn").addEventListener("click", () => {
+          if (confirm(`حذف مشروع "${name}" من القائمة؟`)) {
+            li.remove();
+            updateTags();
+          }
+        });
         return li;
       }
 
-      function togglePrev(name, url) {
-        const f = document.getElementById(`frame-${name}`);
+      function togglePrev(frameId, url) {
+        const f = document.getElementById(frameId);
         if (!f.src) f.src = url;
         f.style.display = f.style.display === "none" ? "block" : "none";
+      }
+
+      function addManualRepo() {
+        const user = document.getElementById("username").value.trim();
+        if (!user) return alert("أدخل اسم مستخدم GitHub أولاً.");
+
+        const name = prompt("أدخل اسم المستودع كما يظهر في GitHub:");
+        if (!name || !name.trim()) return;
+
+        const cleanName = name.trim();
+        const duplicate = [...document.querySelectorAll(".select-box")].some(
+          (box) => box.dataset.name === cleanName,
+        );
+
+        if (duplicate && !confirm("هذا المشروع موجود مسبقاً. هل تريد إضافته مرة أخرى؟")) {
+          return;
+        }
+
+        const desc = prompt("أدخل وصف المشروع والهاشتاقات:", "") || "";
+        document
+          .getElementById("repoList")
+          .appendChild(createCard(cleanName, desc, user, true));
+        updateTags();
       }
 
       function toggleAllCheckboxes() {
@@ -465,63 +679,71 @@
       }
 
       function saveDraft() {
-        const data = {
-          user: document.getElementById("username").value,
-          name: document.getElementById("arabicName").value,
-          logo: savedLogoBase64,
-          repos: [...document.querySelectorAll("#repoList li")].map((li) => ({
-            name: li.querySelector(".select-box").dataset.name,
-            checked: li.querySelector(".select-box").checked,
-            desc: li.querySelector("textarea").value,
-          })),
-        };
-        localStorage.setItem("github_portfolio_v5", JSON.stringify(data));
+        localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(collectSettings()));
         alert("✅ تم حفظ المسودة بنجاح");
       }
 
-      function loadDraft() {
-        // البحث عن المسودة في النسخة الجديدة أولاً، ثم التدرج للنسخ الأقدم لاستعادة بياناتك
-        let data = JSON.parse(localStorage.getItem("github_portfolio_v5"));
+      function readStoredSettings(key) {
+        const raw = localStorage.getItem(key);
+        if (!raw) return null;
 
-        if (!data)
-          data = JSON.parse(localStorage.getItem("github_portfolio_v4"));
-        if (!data)
-          data = JSON.parse(localStorage.getItem("github_portfolio_v3"));
-        if (!data)
-          data = JSON.parse(localStorage.getItem("github_portfolio_v2"));
-        if (!data)
-          data = JSON.parse(localStorage.getItem("github_portfolio_draft")); // النسخة الأولى جداً
+        try {
+          return JSON.parse(raw);
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function loadDraft() {
+        const keys = [CURRENT_STORAGE_KEY, ...LEGACY_STORAGE_KEYS];
+        let data = null;
+
+        for (const key of keys) {
+          data = readStoredSettings(key);
+          if (data) break;
+        }
 
         if (!data) return alert("لا توجد مسودة محفوظة مسبقاً.");
+        if (!applySettings(data)) return alert("تعذر قراءة بيانات المسودة.");
 
-        // التوافق مع اختلاف مسميات المتغيرات بين النسخ القديمة والحديثة
-        document.getElementById("username").value =
-          data.user || data.username || "";
-        document.getElementById("arabicName").value =
-          data.name || data.arabicName || "";
+        localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(collectSettings()));
+        alert("تم استرجاع المسودة بنجاح 📂.");
+      }
 
-        if (data.logo) {
-          savedLogoBase64 = data.logo;
-          const preview = document.getElementById("logoPreview");
-          preview.src = savedLogoBase64;
-          preview.style.display = "block";
-        }
+      function exportSettingsJSON() {
+        const data = collectSettings();
+        const json = JSON.stringify(data, null, 2);
+        const filename = `github_portfolio_settings_${sanitizeFilename(data.name || data.user || "draft")}.json`;
 
-        const list = document.getElementById("repoList");
-        list.innerHTML = "";
-        if (data.repos) {
-          data.repos.forEach((r) => {
-            // استرجاع الوصف سواء كان مسجلاً بالاسم القديم أو الجديد
-            const oldDesc = r.desc || r.description || "";
-            const oldUser = data.user || data.username || "";
-            list.appendChild(createCard(r.name, oldDesc, oldUser, r.checked));
-          });
+        localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(data));
+        downloadFile(filename, json, "application/json;charset=utf-8");
+      }
 
-          updateTags();
-          alert(
-            "تم استرجاع بياناتك القديمة بنجاح 📂! \n(ملاحظة: اضغط الآن على 'حفظ مسودة' ليتم ترقيتها للنسخة الحديثة v5).",
-          );
-        }
+      function triggerImportSettings() {
+        document.getElementById("settingsFileInput").click();
+      }
+
+      function importSettingsJSON(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          try {
+            const data = JSON.parse(e.target.result);
+            if (!applySettings(data)) {
+              throw new Error("صيغة ملف الإعدادات غير صحيحة");
+            }
+
+            localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(collectSettings()));
+            alert("تم استيراد إعدادات JSON بنجاح. يمكنك الآن التعديل ثم تصدير HTML جديد.");
+          } catch (error) {
+            alert(`تعذر استيراد الملف: ${error.message}`);
+          } finally {
+            event.target.value = "";
+          }
+        };
+        reader.readAsText(file, "UTF-8");
       }
 
       function exportHTML(withPreview) {
@@ -530,25 +752,50 @@
           document.getElementById("arabicName").value.trim() ||
           "مشاريعي التعليمية";
 
+        if (!user) return alert("يرجى إدخال اسم مستخدم GitHub قبل التصدير.");
+
         const items = [...document.querySelectorAll(".select-box:checked")].map(
           (box) => {
+            const card = box.closest("li");
             const name = box.dataset.name;
-            const desc = document.querySelector(
-              `textarea[data-name="${name}"]`,
-            ).value;
-            return { name, desc, url: `https://${user}.github.io/${name}/` };
+            const desc = card.querySelector("textarea").value;
+            return { name, desc, url: buildProjectUrl(user, name) };
           },
         );
 
         if (items.length === 0)
           return alert("يرجى تحديد مشروع واحد على الأقل للتصدير.");
 
+        const safeTitle = escapeHTML(title);
+        const safeLogo = savedLogoBase64 ? escapeHTML(savedLogoBase64) : "";
+        const projectCards = items
+          .map((it, i) => {
+            const safeName = escapeHTML(it.name);
+            const safeDesc = escapeHTML(it.desc || "مشروع بدون وصف");
+            const safeDescAttr = escapeHTML(it.desc);
+            const safeUrl = escapeHTML(it.url);
+
+            return `
+                <div class="project-card" data-desc="${safeDescAttr}">
+                    <div class="project-number">${i + 1}</div>
+                    <h2 class="project-title">${safeName}</h2>
+                    <div class="project-desc">${safeDesc}</div>
+                    <div class="actions">
+                        <a href="${safeUrl}" target="_blank" rel="noopener" class="btn btn-open">🌐 فتح الموقع</a>
+                        <button type="button" data-url="${safeUrl}" class="btn btn-copy">📋 نسخ الرابط</button>
+                    </div>
+                    ${withPreview ? `<iframe src="${safeUrl}" loading="lazy" title="معاينة ${safeName}"></iframe>` : ""}
+                </div>
+            `;
+          })
+          .join("");
+
         const finalHTML = `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${title}</title>
+    <title>${safeTitle}</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap');
         body { font-family: 'Tajawal', sans-serif; background: #f8fafc; color: #1e293b; margin: 0; padding: 40px 20px; text-align: center; }
@@ -557,6 +804,7 @@
         .header-box { margin-bottom: 40px; }
         .site-logo { max-width: 180px; max-height: 180px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h1 { color: #2563eb; font-size: 2.5em; margin-bottom: 10px; }
+        .project-title { color: #0f172a; font-size: 1.35em; margin: 0 0 12px; }
         
         .category-nav { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 30px; border-right: 5px solid #10b981; text-align: right; display: none; }
         .tags-container { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
@@ -588,8 +836,8 @@
 <body>
     <div class="container">
         <div class="header-box">
-            ${savedLogoBase64 ? `<img src="${savedLogoBase64}" class="site-logo" alt="شعار الموقع">` : ""}
-            <h1>${title}</h1>
+            ${safeLogo ? `<img src="${safeLogo}" class="site-logo" alt="شعار الموقع">` : ""}
+            <h1>${safeTitle}</h1>
         </div>
         
         <div id="categoryNav" class="category-nav">
@@ -598,26 +846,12 @@
         </div>
 
         <div class="projects-list" id="projectsContainer">
-            ${items
-              .map(
-                (it, i) => `
-                <div class="project-card" data-desc="${it.desc.replace(/"/g, "&quot;")}">
-                    <div class="project-number">${i + 1}</div>
-                    <div class="project-desc">${it.desc || "مشروع بدون وصف"}</div>
-                    <div class="actions">
-                        <a href="${it.url}" target="_blank" class="btn btn-open">🌐 فتح الموقع</a>
-                        <button onclick="copyUrl(this, '${it.url}')" class="btn btn-copy">📋 نسخ الرابط</button>
-                    </div>
-                    ${withPreview ? `<iframe src="${it.url}" loading="lazy"></iframe>` : ""}
-                </div>
-            `,
-              )
-              .join("")}
+            ${projectCards}
         </div>
     </div>
 
     <footer>
-        <div style="font-size: 1.2em; font-weight: bold; margin-bottom: 5px;">${title}</div>
+        <div style="font-size: 1.2em; font-weight: bold; margin-bottom: 5px;">${safeTitle}</div>
         <div style="font-size: 0.9em; opacity: 0.7;">جميع الحقوق محفوظة ©</div>
     </footer>
 
@@ -657,6 +891,12 @@
                     tagsContainer.appendChild(btn);
                 });
             }
+
+            document.querySelectorAll(".btn-copy").forEach(btn => {
+                btn.addEventListener("click", function() {
+                    copyUrl(this, this.dataset.url);
+                });
+            });
         });
 
         function filterProjects(tag, btnElement) {
@@ -676,7 +916,7 @@
         }
 
         function copyUrl(btn, url) {
-            navigator.clipboard.writeText(url).then(() => {
+            const done = () => {
                 const originalText = btn.innerHTML;
                 const originalBg = btn.style.backgroundColor;
                 btn.innerHTML = '✅ تم النسخ';
@@ -685,17 +925,36 @@
                     btn.innerHTML = originalText;
                     btn.style.backgroundColor = originalBg;
                 }, 2000);
-            });
+            };
+
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(url).then(done).catch(() => fallbackCopy(url, done));
+            } else {
+                fallbackCopy(url, done);
+            }
+        }
+
+        function fallbackCopy(url, done) {
+            const textarea = document.createElement("textarea");
+            textarea.value = url;
+            textarea.style.position = "fixed";
+            textarea.style.opacity = "0";
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand("copy");
+            textarea.remove();
+            done();
         }
     <\/script>
 </body>
 </html>`;
 
-        const blob = new Blob([finalHTML], { type: "text/html" });
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = `portfolio_${title.replace(/\s+/g, "_")}.html`;
-        a.click();
+        localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(collectSettings()));
+        downloadFile(
+          `portfolio_${sanitizeFilename(title)}.html`,
+          finalHTML,
+          "text/html;charset=utf-8",
+        );
       }
     </script>
   </body>
