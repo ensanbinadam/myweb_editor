@@ -102,6 +102,16 @@
         justify-content: center;
         margin-top: 30px;
       }
+      .settings-actions {
+        flex-basis: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        justify-content: center;
+        margin-top: 6px;
+        padding-top: 14px;
+        border-top: 1px solid #e2e8f0;
+      }
 
       .btn {
         padding: 12px 24px;
@@ -287,15 +297,17 @@
           <button class="btn btn-success" onclick="exportHTML(true)">
             📤 تصدير احترافي (مع الهاشتاقات)
           </button>
-          <button class="btn btn-info" onclick="exportSettingsJSON()">
-            🧾 حفظ نسخة JSON
-          </button>
-          <button class="btn" style="background: #7c3aed" onclick="triggerImportSettings()">
-            📥 استيراد JSON
-          </button>
           <button class="btn" style="background: #0891b2" onclick="addManualRepo()">
             ➕ إضافة مشروع
           </button>
+          <div class="settings-actions">
+            <button class="btn btn-info" onclick="exportSettingsJSON()">
+              🧾 حفظ نسخة JSON
+            </button>
+            <button class="btn" style="background: #7c3aed" onclick="triggerImportSettings()">
+              📥 استيراد JSON
+            </button>
+          </div>
         </div>
         <input
           type="file"
