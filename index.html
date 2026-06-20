@@ -296,12 +296,6 @@
           <button class="btn" style="background: #0891b2" onclick="addManualRepo()">
             ➕ إضافة مشروع
           </button>
-          <button class="btn" style="background: #475569" onclick="saveDraft()">
-            💾 حفظ مسودة
-          </button>
-          <button class="btn" style="background: #94a3b8" onclick="loadDraft()">
-            📂 استرجاع
-          </button>
         </div>
         <input
           type="file"
@@ -350,15 +344,6 @@
       let savedLogoBase64 = "";
       let previewFrameCounter = 0;
 
-      const CURRENT_STORAGE_KEY = "github_portfolio_v6";
-      const LEGACY_STORAGE_KEYS = [
-        "github_portfolio_v5",
-        "github_portfolio_v4",
-        "github_portfolio_v3",
-        "github_portfolio_v2",
-        "github_portfolio_draft",
-      ];
-
       function escapeHTML(value) {
         return String(value ?? "")
           .replace(/&/g, "&amp;")
@@ -392,35 +377,6 @@
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }
-
-      function persistSettingsLocally(data = collectSettings()) {
-        try {
-          localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(data));
-          return { saved: true, logoSaved: true };
-        } catch (error) {
-          try {
-            localStorage.removeItem(CURRENT_STORAGE_KEY);
-          } catch (removeError) {
-            // تجاهل فشل التنظيف المحلي، فملف JSON هو النسخة المعتمدة للحفظ الكامل.
-          }
-
-          if (!data.logo) return { saved: false, logoSaved: false };
-
-          const compactData = {
-            ...data,
-            logo: "",
-            localDraftNote:
-              "تم حذف الشعار من المسودة المحلية لتقليل الحجم. استخدم ملف JSON لاسترجاع النسخة الكاملة.",
-          };
-
-          try {
-            localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(compactData));
-            return { saved: true, logoSaved: false };
-          } catch (fallbackError) {
-            return { saved: false, logoSaved: false };
-          }
-        }
       }
 
       function normalizeChecked(value) {
@@ -705,48 +661,6 @@
           const txt = li.querySelector("textarea").value;
           li.style.display = !tag || txt.includes(tag) ? "block" : "none";
         });
-      }
-
-      function saveDraft() {
-        const result = persistSettingsLocally();
-
-        if (result.saved && result.logoSaved) {
-          alert("✅ تم حفظ المسودة بنجاح");
-        } else if (result.saved) {
-          alert(
-            "تم حفظ المسودة داخل المتصفح بدون الشعار لأن حجمه كبير. احفظ نسخة JSON للاحتفاظ بالشعار والإعدادات كاملة.",
-          );
-        } else {
-          alert(
-            "تعذر حفظ المسودة داخل المتصفح لأن مساحة التخزين ممتلئة. استخدم زر حفظ نسخة JSON لحفظ الإعدادات في ملف.",
-          );
-        }
-      }
-
-      function readStoredSettings(key) {
-        const raw = localStorage.getItem(key);
-        if (!raw) return null;
-
-        try {
-          return JSON.parse(raw);
-        } catch (e) {
-          return null;
-        }
-      }
-
-      function loadDraft() {
-        const keys = [CURRENT_STORAGE_KEY, ...LEGACY_STORAGE_KEYS];
-        let data = null;
-
-        for (const key of keys) {
-          data = readStoredSettings(key);
-          if (data) break;
-        }
-
-        if (!data) return alert("لا توجد مسودة محفوظة مسبقاً.");
-        if (!applySettings(data)) return alert("تعذر قراءة بيانات المسودة.");
-
-        alert("تم استرجاع المسودة بنجاح 📂.");
       }
 
       function exportSettingsJSON() {
