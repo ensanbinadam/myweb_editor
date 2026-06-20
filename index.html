@@ -394,6 +394,16 @@
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
 
+      function persistSettingsLocally(data = collectSettings()) {
+        try {
+          localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(data));
+          return true;
+        } catch (error) {
+          console.warn("تعذر حفظ المسودة محلياً:", error);
+          return false;
+        }
+      }
+
       function normalizeChecked(value) {
         if (value === undefined || value === null) return true;
         if (typeof value === "string") return value !== "false";
@@ -679,8 +689,13 @@
       }
 
       function saveDraft() {
-        localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(collectSettings()));
-        alert("✅ تم حفظ المسودة بنجاح");
+        if (persistSettingsLocally()) {
+          alert("✅ تم حفظ المسودة بنجاح");
+        } else {
+          alert(
+            "تعذر حفظ المسودة داخل المتصفح لأن مساحة التخزين ممتلئة. استخدم زر حفظ نسخة JSON لحفظ الإعدادات في ملف.",
+          );
+        }
       }
 
       function readStoredSettings(key) {
@@ -706,7 +721,7 @@
         if (!data) return alert("لا توجد مسودة محفوظة مسبقاً.");
         if (!applySettings(data)) return alert("تعذر قراءة بيانات المسودة.");
 
-        localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(collectSettings()));
+        persistSettingsLocally();
         alert("تم استرجاع المسودة بنجاح 📂.");
       }
 
@@ -715,7 +730,7 @@
         const json = JSON.stringify(data, null, 2);
         const filename = `github_portfolio_settings_${sanitizeFilename(data.name || data.user || "draft")}.json`;
 
-        localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(data));
+        persistSettingsLocally(data);
         downloadFile(filename, json, "application/json;charset=utf-8");
       }
 
@@ -735,7 +750,7 @@
               throw new Error("صيغة ملف الإعدادات غير صحيحة");
             }
 
-            localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(collectSettings()));
+            persistSettingsLocally();
             alert("تم استيراد إعدادات JSON بنجاح. يمكنك الآن التعديل ثم تصدير HTML جديد.");
           } catch (error) {
             alert(`تعذر استيراد الملف: ${error.message}`);
@@ -949,7 +964,7 @@
 </body>
 </html>`;
 
-        localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(collectSettings()));
+        persistSettingsLocally();
         downloadFile(
           `portfolio_${sanitizeFilename(title)}.html`,
           finalHTML,
