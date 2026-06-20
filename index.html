@@ -397,10 +397,29 @@
       function persistSettingsLocally(data = collectSettings()) {
         try {
           localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(data));
-          return true;
+          return { saved: true, logoSaved: true };
         } catch (error) {
-          console.warn("تعذر حفظ المسودة محلياً:", error);
-          return false;
+          try {
+            localStorage.removeItem(CURRENT_STORAGE_KEY);
+          } catch (removeError) {
+            // تجاهل فشل التنظيف المحلي، فملف JSON هو النسخة المعتمدة للحفظ الكامل.
+          }
+
+          if (!data.logo) return { saved: false, logoSaved: false };
+
+          const compactData = {
+            ...data,
+            logo: "",
+            localDraftNote:
+              "تم حذف الشعار من المسودة المحلية لتقليل الحجم. استخدم ملف JSON لاسترجاع النسخة الكاملة.",
+          };
+
+          try {
+            localStorage.setItem(CURRENT_STORAGE_KEY, JSON.stringify(compactData));
+            return { saved: true, logoSaved: false };
+          } catch (fallbackError) {
+            return { saved: false, logoSaved: false };
+          }
         }
       }
 
@@ -689,8 +708,14 @@
       }
 
       function saveDraft() {
-        if (persistSettingsLocally()) {
+        const result = persistSettingsLocally();
+
+        if (result.saved && result.logoSaved) {
           alert("✅ تم حفظ المسودة بنجاح");
+        } else if (result.saved) {
+          alert(
+            "تم حفظ المسودة داخل المتصفح بدون الشعار لأن حجمه كبير. احفظ نسخة JSON للاحتفاظ بالشعار والإعدادات كاملة.",
+          );
         } else {
           alert(
             "تعذر حفظ المسودة داخل المتصفح لأن مساحة التخزين ممتلئة. استخدم زر حفظ نسخة JSON لحفظ الإعدادات في ملف.",
@@ -721,7 +746,6 @@
         if (!data) return alert("لا توجد مسودة محفوظة مسبقاً.");
         if (!applySettings(data)) return alert("تعذر قراءة بيانات المسودة.");
 
-        persistSettingsLocally();
         alert("تم استرجاع المسودة بنجاح 📂.");
       }
 
@@ -730,7 +754,6 @@
         const json = JSON.stringify(data, null, 2);
         const filename = `github_portfolio_settings_${sanitizeFilename(data.name || data.user || "draft")}.json`;
 
-        persistSettingsLocally(data);
         downloadFile(filename, json, "application/json;charset=utf-8");
       }
 
@@ -750,7 +773,6 @@
               throw new Error("صيغة ملف الإعدادات غير صحيحة");
             }
 
-            persistSettingsLocally();
             alert("تم استيراد إعدادات JSON بنجاح. يمكنك الآن التعديل ثم تصدير HTML جديد.");
           } catch (error) {
             alert(`تعذر استيراد الملف: ${error.message}`);
@@ -964,7 +986,6 @@
 </body>
 </html>`;
 
-        persistSettingsLocally();
         downloadFile(
           `portfolio_${sanitizeFilename(title)}.html`,
           finalHTML,
